@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#122522">
+  <title>顾客屏 · 有数收银</title>
+  <link rel="stylesheet" href="/styles.css?v=20261012-2">
+</head>
+<body class="customer-body">
+  <main class="customer-layout">
+    <header class="customer-header"><div class="brand"><div class="brand-mark" aria-hidden="true">有</div><div><strong>有数收银</strong><span>顾客屏</span></div></div><span class="pill">请核对商品与金额</span></header>
+    <section class="customer-panel" aria-live="polite">
+      <div><p class="eyebrow">本次购买</p><h1>请核对购物清单</h1></div>
+      <div id="customer-items" class="customer-items"><div class="empty">等待收银员扫描商品。</div></div>
+      <div class="customer-total"><span>应付金额</span><strong id="customer-total">¥0.00</strong></div>
+      <p class="small-muted">如商品数量或金额不符，请在付款前告诉收银员。本屏不展示付款二维码。</p>
+    </section>
+  </main>
+  <script type="module" src="/customer.js?v=20261012-2"></script>
+</body>
+</html>
