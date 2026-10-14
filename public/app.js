@@ -6,6 +6,7 @@ const state = {
   orders: [], selectedOrder: null, dashboard: null, shifts: [], users: [], audit: [], procurement: null,
   dashboardUpdatedAt: null, dashboardRefreshError: null, dashboardRefreshing: false,
   selectedMonth: null,
+  reconciliation: null, selectedReconcileMonth: null, reconcileQuery: '', reconcileOnlyIssues: false,
   productQuery: '', missingBarcode: null, pendingAddBarcode: null, busy: false,
 };
 let cameraScan = null;
@@ -20,6 +21,10 @@ const time = (value) => value ? new Date(value).toLocaleString('zh-CN', { hour12
 const date = (value) => value ? new Date(value).toLocaleDateString('zh-CN') : '—';
 const shortId = (value) => String(value || '').slice(0, 8).toUpperCase();
 const qtyText = (milli, unit) => unit === 'kg' ? `${(milli / 1000).toFixed(3)} kg` : `${milli / 1000} 件`;
+const chinaMonth = () => {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit' }).formatToParts(new Date());
+  return `${parts.find((part) => part.type === 'year').value}-${parts.find((part) => part.type === 'month').value}`;
+};
 const methodName = { cash: '现金', wechat: '微信', alipay: '支付宝' };
 const statusMap = {
   AWAITING_APPROVAL: ['待审批', 'warning'], AWAITING_PAYMENT: ['待收款', 'info'],
@@ -111,6 +116,10 @@ async function loadTab() {
   }
   if (tab === 'team' && state.user.role === 'owner') state.users = await api('/users');
   if (tab === 'procurement' && state.user.role === 'owner') state.procurement = await api('/procurement');
+  if (tab === 'reconciliation' && state.user.role === 'owner') {
+    state.selectedReconcileMonth ||= chinaMonth();
+    state.reconciliation = await api(`/reconciliation/monthly?month=${encodeURIComponent(state.selectedReconcileMonth)}`);
+  }
   if (tab === 'audit') state.audit = await api('/audit');
   state.shift = await api('/shifts/current');
 }
@@ -163,6 +172,7 @@ function navigationTabs() {
     ...(state.user?.role === 'owner' ? [['dashboard', '店主总览']] : []),
     ['products', '商品与库存'],
     ...(state.user?.role === 'owner' ? [['procurement', '采购与供货']] : []),
+    ...(state.user?.role === 'owner' ? [['reconciliation', '月度出货核对']] : []),
     ...(state.user?.role === 'owner' ? [['team', '员工账号']] : []),
     ['audit', '操作记录'],
   ];
@@ -181,6 +191,7 @@ function page() {
     case 'dashboard': return renderDashboard();
     case 'products': return renderProducts();
     case 'procurement': return renderProcurement();
+    case 'reconciliation': return renderReconciliation();
     case 'team': return renderTeam();
     case 'audit': return renderAudit();
     default: return '';
@@ -306,6 +317,59 @@ function renderMonthlyOverview(data) {
       <div class="monthly-detail"><h3>${esc(monthLabel(selected.month))}明细</h3><div class="monthly-totals"><div><span>收款总额</span><strong>${money(selected.grossCents)}</strong></div><div><span>退款总额</span><strong>${money(selected.refundCents)}</strong></div><div><span>收款净额</span><strong>${money(selected.netCents)}</strong></div><div><span>完成订单</span><strong>${selected.orderCount} 笔</strong></div></div><div class="monthly-breakdown"><div><span>现金</span><b>${money(selected.cashCents)}</b></div><div><span>微信</span><b>${money(selected.wechatCents)}</b></div><div><span>支付宝</span><b>${money(selected.alipayCents)}</b></div><div><span>已完成退款</span><b>${selected.refundCount} 笔</b></div><div><span>待核实扫码订单</span><b>${selected.pendingCount} 笔</b></div></div><p class="monthly-note">收款按完成时间计入，退款按实际完成月份扣减；待核实款不计入收款。</p></div>
     </div>
   </section>`;
+}
+
+function reconcileStatus(item) {
+  if (item.openingMilli === null) return ['待录期初', 'warning'];
+  if (item.closingMilli === null) return ['待录期末', 'warning'];
+  if (item.differenceMilli > 0) return ['少货', 'danger'];
+  if (item.differenceMilli < 0) return ['多货', 'warning'];
+  return ['已对平', 'success'];
+}
+
+function renderReconciliationTable() {
+  const data = state.reconciliation;
+  const query = state.reconcileQuery.trim().toLowerCase();
+  const filtered = data.rows.filter((item) =>
+    (!query || item.name.toLowerCase().includes(query) || item.barcode.toLowerCase().includes(query))
+    && (!state.reconcileOnlyIssues || item.differenceMilli !== 0))
+    .sort((left, right) => {
+      const rank = (item) => item.differenceMilli > 0 ? 0 : item.differenceMilli < 0 ? 1 : item.differenceMilli === null ? 2 : 3;
+      return rank(left) - rank(right) || Math.abs(right.differenceMilli || 0) - Math.abs(left.differenceMilli || 0) || left.name.localeCompare(right.name, 'zh-CN');
+    });
+  const visible = filtered.slice(0, 100);
+  return `<section id="reconcile-results" class="card reconcile-results" aria-live="polite">
+    <div class="card-heading"><h2>按商品核对</h2><span class="pill">${filtered.length} / ${data.rows.length} 种</span></div>
+    ${visible.length ? `<div class="table-wrap"><table class="reconcile-table"><thead><tr><th>商品</th><th>期初实盘</th><th>入库</th><th>其他调整</th><th>期末实盘</th><th>实际出货</th><th>系统销量／净出库</th><th>差异</th><th>操作</th></tr></thead><tbody>${visible.map((item) => {
+      const [label, tone] = reconcileStatus(item);
+      const countValue = (value) => value === null ? '—' : qtyText(value, item.unit);
+      const openingHint = item.openingSource === 'previous' ? '承接上月末盘' : item.openingSource === 'new' ? '本月新建，按 0 计' : '';
+      return `<tr class="${item.differenceMilli > 0 ? 'reconcile-shortage' : ''}" data-reconcile-product="${esc(item.barcode)}">
+        <td><strong>${esc(item.name)}</strong><small>${esc(item.barcode)} · ${item.unit === 'kg' ? '千克' : '件'}${item.active ? '' : ' · 已停用'}</small></td>
+        <td><input data-count-opening inputmode="decimal" aria-label="${esc(item.name)}期初实盘${item.unit === 'kg' ? '千克' : '件数'}" value="${item.openingSource === 'manual' ? item.openingMilli / 1000 : ''}" placeholder="${item.openingMilli === null ? '待录入' : item.openingMilli / 1000}" title="${openingHint || '按期初实际数量填写'}"><small>${openingHint || (item.openingSource === 'manual' ? '店主已录入' : '')}</small></td>
+        <td>${countValue(item.receivedMilli)}</td><td>${countValue(item.otherAdjustmentMilli)}</td>
+        <td><input data-count-closing inputmode="decimal" aria-label="${esc(item.name)}期末实盘${item.unit === 'kg' ? '千克' : '件数'}" value="${item.closingMilli === null ? '' : item.closingMilli / 1000}" placeholder="待录入"></td>
+        <td>${countValue(item.actualOutboundMilli)}</td><td>${countValue(item.systemOutboundMilli)}</td>
+        <td><span class="status ${tone}">${label}</span>${item.differenceMilli !== null && item.differenceMilli !== 0 ? `<small>${item.differenceMilli > 0 ? '+' : ''}${countValue(item.differenceMilli)}</small>` : ''}</td>
+        <td><button type="button" class="btn secondary small" data-save-reconcile-count="${esc(item.barcode)}">保存</button></td>
+      </tr>`;
+    }).join('')}</tbody></table></div>` : '<div class="empty">没有符合筛选条件的商品。</div>'}
+    ${filtered.length > 100 ? `<p class="reconcile-limit">当前显示前 100 种。输入条码或名称可定位其他商品；CSV 包含全部 ${filtered.length} 种。</p>` : ''}
+  </section>`;
+}
+
+function renderReconciliation() {
+  const data = state.reconciliation;
+  if (!data) return '<div class="empty">正在加载月度出货核对。</div>';
+  const incomplete = data.summary.total - data.summary.ready;
+  return `<div class="reconciliation-page">
+    ${header('店主 · 月度盘点', '月度出货核对', '用实盘数量、到货和系统出库核对每种商品。只有期初、期末实盘齐全才会判断差异。')}
+    <div class="reconcile-guide"><strong>核对公式</strong><span>实际出货 = 期初实盘 + 入库 + 其他调整 − 期末实盘；差异 = 实际出货 − 系统出库。正数表示少货，负数表示多货。</span></div>
+    <div class="reconcile-toolbar card card-pad"><div class="field"><label for="reconcile-month">对账月份</label><select id="reconcile-month">${data.months.slice().reverse().map((month) => `<option value="${month}" ${month === data.month ? 'selected' : ''}>${esc(month)}${month === chinaMonth() ? ' · 本月未结束' : ''}</option>`).join('')}</select></div><div class="field"><label for="reconcile-search">查找商品</label><input id="reconcile-search" value="${esc(state.reconcileQuery)}" placeholder="扫描条码或输入名称" autocomplete="off"></div><label class="reconcile-issue-toggle"><input id="reconcile-only-issues" type="checkbox" ${state.reconcileOnlyIssues ? 'checked' : ''}>只看差异及待盘点</label></div>
+    <div class="reconcile-summary" aria-label="对账汇总"><div class="stat"><span class="stat-label">已完成核对</span><strong class="stat-value">${data.summary.ready} / ${data.summary.total}</strong></div><div class="stat"><span class="stat-label">少货商品</span><strong class="stat-value">${data.summary.missing}</strong></div><div class="stat"><span class="stat-label">多货商品</span><strong class="stat-value">${data.summary.surplus}</strong></div><div class="stat"><span class="stat-label">待补实盘</span><strong class="stat-value">${incomplete}</strong></div></div>
+    <section class="card reconcile-import"><div class="card-heading"><h2>批量录入与导出</h2></div><div class="card-body stack"><p class="subtext">可在下方逐种录入，也可导出含全部条码的模板，填写期初、期末实盘后导入。空白单元格不会覆盖已有数量。</p><form id="reconcile-import-form" class="reconcile-import-form"><div class="field"><label for="reconcile-file">盘点 CSV 文件</label><input id="reconcile-file" name="file" type="file" accept=".csv,text/csv" required></div><button class="btn primary" type="submit">导入实盘数量</button></form><div class="row"><button class="btn secondary" type="button" data-action="download-reconcile-template">下载盘点模板</button><button class="btn secondary" type="button" data-action="download-reconcile-report">导出本月对账表</button></div><p class="help">月底最后营业时盘点并保存；跨月补录须使用当时实际记录的数量。用 Excel 编辑模板时，将条码列设为文本以保留前导零。本月未结束时，差异只是阶段性结果。录入本表不会自动修改当前库存，需要校正时再到“商品与库存”抽盘。</p></div></section>
+    ${renderReconciliationTable()}
+  </div>`;
 }
 
 function renderDashboard() {
@@ -665,6 +729,37 @@ function downloadTemplate(kind) {
   setTimeout(() => URL.revokeObjectURL(link.href), 1000);
 }
 
+function csvText(value) {
+  const raw = String(value ?? '');
+  const safe = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
+  return `"${safe.replaceAll('"', '""')}"`;
+}
+
+function downloadCsvFile(name, lines) {
+  const blob = new Blob(['\uFEFF', lines.join('\n'), '\n'], { type: 'text/csv;charset=utf-8' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = name;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
+
+function exportReconciliation(template) {
+  const { month, rows } = state.reconciliation;
+  const quantity = (value, unit) => value === null ? '' : unit === 'kg' ? (value / 1000).toFixed(3) : String(value / 1000);
+  if (template) {
+    downloadCsvFile(`${month}-商品盘点模板.csv`, [
+      'barcode,name,unit,opening,closing',
+      ...rows.map((item) => [csvText(item.barcode), csvText(item.name), item.unit, quantity(item.openingMilli, item.unit), quantity(item.closingMilli, item.unit)].join(',')),
+    ]);
+  } else {
+    downloadCsvFile(`${month}-月度出货核对.csv`, [
+      'barcode,name,unit,opening,received,other_adjustment,closing,actual_outbound,system_outbound,difference,status',
+      ...rows.map((item) => [csvText(item.barcode), csvText(item.name), item.unit, quantity(item.openingMilli, item.unit), quantity(item.receivedMilli, item.unit), quantity(item.otherAdjustmentMilli, item.unit), quantity(item.closingMilli, item.unit), quantity(item.actualOutboundMilli, item.unit), quantity(item.systemOutboundMilli, item.unit), quantity(item.differenceMilli, item.unit), csvText(reconcileStatus(item)[0])].join(',')),
+    ]);
+  }
+}
+
 async function resolveReceiptBarcode(input) {
   const line = input.closest('[data-receipt-line]');
   if (!line) return false;
@@ -685,6 +780,23 @@ async function resolveReceiptBarcode(input) {
 document.addEventListener('click', async (event) => {
   const target = event.target.closest('button');
   if (!target || target.disabled) return;
+  if (target.dataset.saveReconcileCount) {
+    const item = state.reconciliation?.rows.find((row) => row.barcode === target.dataset.saveReconcileCount);
+    const line = target.closest('[data-reconcile-product]');
+    if (!item || !line) return;
+    return run(async () => {
+      const opening = line.querySelector('[data-count-opening]').value.trim();
+      const closing = line.querySelector('[data-count-closing]').value.trim();
+      if (!opening && !closing) throw new Error('请填写期初或期末实盘数量');
+      const entry = { barcode: item.barcode };
+      if (opening) entry.openingMilli = quantityFromInput(opening, item.unit, true);
+      if (closing) entry.closingMilli = quantityFromInput(closing, item.unit, true);
+      await api('/reconciliation/counts', { method: 'POST', body: { month: state.reconciliation.month, rows: [entry] } });
+      await loadTab();
+    }, '实盘数量已保存');
+  }
+  if (target.dataset.action === 'download-reconcile-template') { exportReconciliation(true); return; }
+  if (target.dataset.action === 'download-reconcile-report') { exportReconciliation(false); return; }
   if (target.dataset.dashboardMonth) {
     state.selectedMonth = target.dataset.dashboardMonth;
     document.querySelector('.dashboard-monthly').outerHTML = renderMonthlyOverview(state.dashboard);
@@ -839,6 +951,12 @@ document.addEventListener('click', async (event) => {
 });
 
 document.addEventListener('input', async (event) => {
+  if (event.target.id === 'reconcile-search') {
+    state.reconcileQuery = event.target.value;
+    const section = document.querySelector('#reconcile-results');
+    if (section) section.outerHTML = renderReconciliationTable();
+    return;
+  }
   if (event.target.id === 'product-search') {
     state.searchText = event.target.value;
     if (state.missingBarcode !== state.searchText.trim()) state.missingBarcode = null;
@@ -916,7 +1034,20 @@ document.addEventListener('visibilitychange', () => {
   else if (state.user?.role === 'owner' && state.tab === 'dashboard') refreshDashboard();
 });
 
-document.addEventListener('change', (event) => {
+document.addEventListener('change', async (event) => {
+  if (event.target.id === 'reconcile-month') {
+    state.selectedReconcileMonth = event.target.value;
+    state.reconcileQuery = '';
+    await run(() => loadTab(), '已切换对账月份');
+    if (state.reconciliation?.month === state.selectedReconcileMonth) { state.notice = null; render(); }
+    return;
+  }
+  if (event.target.id === 'reconcile-only-issues') {
+    state.reconcileOnlyIssues = event.target.checked;
+    const section = document.querySelector('#reconcile-results');
+    if (section) section.outerHTML = renderReconciliationTable();
+    return;
+  }
   if (event.target.matches('[data-receipt-barcode]')) { resolveReceiptBarcode(event.target); return; }
   const index = event.target.dataset.cartQty ?? event.target.dataset.cartPrice;
   if (index === undefined) return;
@@ -981,6 +1112,25 @@ document.addEventListener('submit', async (event) => {
     const rows = csv.map((item, index) => { try { return { barcode: item.barcode, name: item.name, unit: item.unit, priceCents: centsFromYuan(item.price_yuan, '售价'), costCents: item.cost_yuan ? centsFromYuan(item.cost_yuan, '进货成本') : undefined, stockMilli: quantityFromInput(item.stock || '0', item.unit, true) }; } catch (error) { throw new Error(`第 ${index + 2} 行：${error.message}`); } });
     const result = await api('/products/import', { method: 'POST', body: { rows } }); await loadTab(); state.notice = { type: 'success', text: `导入完成：新增 ${result.created}，更新 ${result.updated}` };
   }, '商品已导入');
+  if (form.id === 'reconcile-import-form') return run(async () => {
+    const file = values.get('file');
+    if (!file?.size) throw new Error('请选择盘点 CSV 文件');
+    const csv = parseCsv(await file.text());
+    const products = new Map(state.reconciliation.rows.map((item) => [item.barcode, item]));
+    const rows = csv.map((entry, index) => {
+      const barcode = products.has(entry.barcode) ? entry.barcode : entry.barcode?.replace(/^'/, '');
+      const product = products.get(barcode);
+      if (!product) throw new Error(`第 ${index + 2} 行条码未在本月商品表中：${entry.barcode || '空白'}`);
+      const row = { barcode: product.barcode };
+      if (entry.opening) row.openingMilli = quantityFromInput(entry.opening, product.unit, true);
+      if (entry.closing) row.closingMilli = quantityFromInput(entry.closing, product.unit, true);
+      return row;
+    }).filter((entry) => entry.openingMilli !== undefined || entry.closingMilli !== undefined);
+    if (!rows.length) throw new Error('盘点文件没有填写期初或期末实盘数量');
+    const result = await api('/reconciliation/counts', { method: 'POST', body: { month: state.reconciliation.month, rows } });
+    await loadTab();
+    state.notice = { type: 'success', text: `已保存 ${result.updated} 种商品的实盘数量` };
+  }, '盘点已导入');
   if (form.id === 'statement-import-form') return run(async () => {
     const file = values.get('file'); if (!file?.size) throw new Error('请选择 CSV 文件');
     const csv = parseCsv(await file.text());

@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import { openDatabase, transaction } from './db.js';
 import { createDailyBackup } from './backup.js';
 import { procurementOverview, recordReceipt, saveSupplier } from './procurement.js';
+import { monthlyStockReconciliation, saveMonthlyStockCounts } from './reconciliation.js';
 import {
   AppError, addCashEvent, adjustStock, audit, claimPaymentReference, closeShift, completeRefund, countStock,
   createOrder, currentShift, dashboard, decideOrder, decideRefund, getOrder,
@@ -212,6 +213,8 @@ export function createApp({ db = openDatabase(process.env.POS_DB_PATH || join(he
       match = path.match(/^\/api\/suppliers\/([^/]+)$/);
       if (req.method === 'PATCH' && match) { requireUser(user, 'owner'); return json(res, 200, { ok: true, data: saveSupplier(db, user.id, await bodyOf(req), match[1]) }); }
       if (req.method === 'POST' && path === '/api/receipts') { requireUser(user, 'owner'); return json(res, 201, { ok: true, data: recordReceipt(db, user.id, await bodyOf(req)) }); }
+      if (req.method === 'GET' && path === '/api/reconciliation/monthly') { requireUser(user, 'owner'); return json(res, 200, { ok: true, data: monthlyStockReconciliation(db, url.searchParams.get('month')) }); }
+      if (req.method === 'POST' && path === '/api/reconciliation/counts') { requireUser(user, 'owner'); const input = await bodyOf(req); return json(res, 200, { ok: true, data: saveMonthlyStockCounts(db, user.id, input.month, input.rows) }); }
       if (req.method === 'GET' && path === '/api/users') { requireUser(user, 'owner'); return json(res, 200, { ok: true, data: db.prepare('SELECT id,username,display_name,role,active,created_at FROM users ORDER BY created_at DESC').all() }); }
       if (req.method === 'POST' && path === '/api/users') { requireUser(user, 'owner'); return json(res, 201, { ok: true, data: createUser(db, await bodyOf(req), 'cashier', user.id) }); }
       match = path.match(/^\/api\/users\/([^/]+)$/);

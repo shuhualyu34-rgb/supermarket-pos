@@ -134,6 +134,14 @@ export function openDatabase(path = process.env.POS_DB_PATH || resolve('data/pos
       reference_id TEXT, reason TEXT NOT NULL,
       actor_id TEXT NOT NULL REFERENCES users(id), created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS monthly_stock_counts (
+      month TEXT NOT NULL, product_id TEXT NOT NULL REFERENCES products(id),
+      opening_milli INTEGER CHECK(opening_milli >= 0),
+      closing_milli INTEGER CHECK(closing_milli >= 0),
+      updated_at TEXT NOT NULL, actor_id TEXT NOT NULL REFERENCES users(id),
+      PRIMARY KEY(month, product_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_monthly_stock_counts_product ON monthly_stock_counts(product_id, month);
     CREATE TABLE IF NOT EXISTS refund_requests (
       id TEXT PRIMARY KEY, order_id TEXT NOT NULL REFERENCES orders(id),
       requested_by TEXT NOT NULL REFERENCES users(id),

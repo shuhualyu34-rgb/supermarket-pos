@@ -152,6 +152,26 @@ p { margin: 0; }
 .monthly-breakdown span { color: var(--ink-soft); }
 .monthly-breakdown b { text-align: right; }
 .monthly-note { margin-top: 12px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.reconciliation-page { max-width: 1500px; margin: 0 auto; display: grid; gap: 16px; }
+.reconciliation-page .topline { margin-bottom: 0; }
+.reconcile-guide { display: flex; gap: 10px; align-items: baseline; padding: 13px 16px; border-radius: 10px; background: var(--blue-soft); color: #174c79; font-size: 13px; }
+.reconcile-guide strong { white-space: nowrap; }
+.reconcile-toolbar { display: grid; grid-template-columns: minmax(180px, 220px) minmax(240px, 1fr) auto; gap: 14px; align-items: end; }
+.reconcile-issue-toggle { display: flex; align-items: center; gap: 8px; min-height: 44px; white-space: nowrap; font-size: 13px; font-weight: 700; }
+.reconcile-issue-toggle input { width: 18px; min-height: 18px; height: 18px; }
+.reconcile-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.reconcile-summary .stat-value { display: block; font-size: 25px; }
+.reconcile-import .subtext { margin-top: 0; }
+.reconcile-import-form { display: flex; align-items: end; gap: 10px; flex-wrap: wrap; }
+.reconcile-import-form .field { flex: 1 1 260px; }
+.reconcile-table { min-width: 1120px; }
+.reconcile-table th, .reconcile-table td { vertical-align: middle; }
+.reconcile-table td:first-child { min-width: 180px; }
+.reconcile-table td:first-child small, .reconcile-table td small { display: block; color: var(--muted); font-size: 11px; margin-top: 3px; }
+.reconcile-table input { width: 100px; min-height: 40px; padding: 7px 8px; }
+.reconcile-table .status { white-space: nowrap; }
+.reconcile-shortage { background: #fff8f7; }
+.reconcile-limit { padding: 12px 16px; color: var(--muted); font-size: 12px; }
 .procurement-stats { margin-bottom: 16px; }
 .procurement-forms { align-items: start; }
 .procurement-section { margin-top: 16px; }
@@ -308,6 +328,10 @@ td small { color: var(--muted); display: block; }
   .dashboard-row { padding: 10px; }
   .dashboard-sales { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
   .dashboard-monthly { padding: 14px; }
+  .reconcile-toolbar { grid-template-columns: 1fr; }
+  .reconcile-issue-toggle { justify-self: start; }
+  .reconcile-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .reconcile-guide { display: grid; }
   .monthly-row { grid-template-columns: 96px minmax(28px, 1fr) 82px; gap: 7px; padding: 6px 8px; }
   .monthly-row strong { font-size: 12px; }
   .form-grid { grid-template-columns: 1fr; }
