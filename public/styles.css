@@ -96,15 +96,17 @@ p { margin: 0; }
 .dashboard-stat .stat-value { font-size: clamp(20px, 2vw, 27px); overflow-wrap: anywhere; }
 .dashboard-stat.is-warning .stat-value { color: var(--orange); }
 .dashboard-stat.is-danger .stat-value { color: var(--red); }
+.dashboard-stat.is-info { border-top-color: var(--blue); }
+.dashboard-stat.is-info .stat-value { color: var(--blue); }
 .spot-checks { margin-top: 18px; padding: 19px; background: var(--surface); border: 1px solid var(--line); border-radius: 13px; }
+.spot-checks-optional { background: #f8fbf8; }
+.spot-check-optional-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 13px; }
 .spot-check-heading { display: flex; justify-content: space-between; align-items: start; gap: 14px; }
+.spot-check-heading-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .spot-check-heading p:last-child { color: var(--ink-soft); font-size: 13px; margin-top: 5px; }
-.spot-check-progress { display: block; width: 100%; height: 7px; margin-top: 15px; overflow: hidden; border: 0; border-radius: 999px; appearance: none; background: var(--surface-soft); }
-.spot-check-progress::-webkit-progress-bar { border-radius: 999px; background: var(--surface-soft); }
-.spot-check-progress::-webkit-progress-value { border-radius: 999px; background: var(--green); }
-.spot-check-progress::-moz-progress-bar { border-radius: 999px; background: var(--green); }
+.spot-check-error { color: var(--red); font-size: 12px; margin-top: 10px; }
 .spot-check-period, .spot-check-note { color: var(--muted); font-size: 12px; line-height: 1.5; }
-.spot-check-period { margin-top: 8px; }
+.spot-check-period { margin-top: 12px; }
 .spot-check-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 15px; }
 .spot-check-item { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-soft); }
 .spot-check-item-main { min-width: 0; }
@@ -169,6 +171,15 @@ p { margin: 0; }
 .monthly-breakdown div { display: flex; justify-content: space-between; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
 .monthly-breakdown span { color: var(--ink-soft); }
 .monthly-breakdown b { text-align: right; }
+.monthly-payment-check { display: grid; gap: 8px; margin-top: 17px; padding-top: 15px; border-top: 1px solid var(--line); }
+.monthly-payment-check h4 { margin: 0; font-size: 14px; }
+.monthly-payment-check > p { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.monthly-payment-channel { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 10px; padding: 11px; border-radius: 9px; background: var(--surface-soft); }
+.monthly-payment-channel > strong { grid-column: 1 / -1; font-size: 13px; }
+.monthly-payment-channel div { display: grid; gap: 2px; min-width: 0; }
+.monthly-payment-channel span, .monthly-payment-channel small { color: var(--ink-soft); font-size: 11px; }
+.monthly-payment-channel b { overflow-wrap: anywhere; font-size: 14px; }
+.monthly-payment-channel small { grid-column: 1 / -1; }
 .monthly-note { margin-top: 12px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .reconciliation-page { max-width: 1500px; margin: 0 auto; display: grid; gap: 16px; }
 .reconciliation-page .topline { margin-bottom: 0; }

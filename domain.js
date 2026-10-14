@@ -492,6 +492,9 @@ function monthlyOverview(db, today) {
   const summary = new Map(monthKeys.map((key) => [key, {
     month: key, orderCount: 0, grossCents: 0, refundCount: 0, refundCents: 0,
     netCents: 0, cashCents: 0, wechatCents: 0, alipayCents: 0, pendingCount: 0,
+    wechatExpectedCents: 0, alipayExpectedCents: 0,
+    wechatStatementCents: 0, alipayStatementCents: 0,
+    wechatStatementCount: 0, alipayStatementCount: 0,
   }]));
   const sales = rows(db, `SELECT strftime('%Y-%m',completed_at,'+8 hours') AS month,method,COUNT(*) AS count,COALESCE(SUM(total_cents),0) AS amount
     FROM orders WHERE completed_at>=? AND completed_at<? AND status IN ('COMPLETED','REFUNDED') GROUP BY month,method`, from, until);
@@ -517,6 +520,29 @@ function monthlyOverview(db, today) {
   for (const entry of pending) {
     const item = summary.get(entry.month);
     if (item) item.pendingCount = entry.count;
+  }
+  const digitalExpected = rows(db, `SELECT strftime('%Y-%m',COALESCE(completed_at,created_at),'+8 hours') AS month,method,COALESCE(SUM(total_cents),0) AS amount
+    FROM orders WHERE method IN ('wechat','alipay') AND status IN ('PAYMENT_PENDING','COMPLETED','REFUNDED')
+      AND COALESCE(completed_at,created_at)>=? AND COALESCE(completed_at,created_at)<? GROUP BY month,method`, from, until);
+  for (const entry of digitalExpected) {
+    const item = summary.get(entry.month);
+    if (!item) continue;
+    if (entry.method === 'wechat') item.wechatExpectedCents = entry.amount;
+    if (entry.method === 'alipay') item.alipayExpectedCents = entry.amount;
+  }
+  const digitalStatements = rows(db, `SELECT strftime('%Y-%m',paid_at,'+8 hours') AS month,channel,COUNT(*) AS count,COALESCE(SUM(amount_cents),0) AS amount
+    FROM payment_statements WHERE channel IN ('wechat','alipay') AND paid_at>=? AND paid_at<? GROUP BY month,channel`, from, until);
+  for (const entry of digitalStatements) {
+    const item = summary.get(entry.month);
+    if (!item) continue;
+    if (entry.channel === 'wechat') {
+      item.wechatStatementCents = entry.amount;
+      item.wechatStatementCount = entry.count;
+    }
+    if (entry.channel === 'alipay') {
+      item.alipayStatementCents = entry.amount;
+      item.alipayStatementCount = entry.count;
+    }
   }
   return [...summary.values()].map((item) => ({ ...item, netCents: item.grossCents - item.refundCents }));
 }
