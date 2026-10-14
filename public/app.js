@@ -5,6 +5,7 @@ const state = {
   cart: [], products: [], productTotal: 0, searchResults: [], searchText: '',
   orders: [], selectedOrder: null, dashboard: null, shifts: [], users: [], audit: [], procurement: null,
   dashboardUpdatedAt: null, dashboardRefreshError: null, dashboardRefreshing: false,
+  spotChecks: null, spotChecksError: null,
   selectedMonth: null,
   reconciliation: null, selectedReconcileMonth: null, reconcileQuery: '', reconcileOnlyIssues: false,
   productQuery: '', missingBarcode: null, pendingAddBarcode: null, busy: false,
@@ -104,11 +105,7 @@ async function loadTab() {
     if (state.selectedOrder) state.selectedOrder = await api(`/orders/${state.selectedOrder.id}`);
   }
   if (tab === 'shift') state.shifts = await api('/shifts');
-  if (tab === 'dashboard' && state.user.role === 'owner') {
-    state.dashboard = await api('/dashboard');
-    state.dashboardUpdatedAt = new Date();
-    state.dashboardRefreshError = null;
-  }
+  if (tab === 'dashboard' && state.user.role === 'owner') await loadDashboardData();
   if (tab === 'products') {
     const result = await api(`/products?q=${encodeURIComponent(state.productQuery)}&limit=100`);
     state.products = result.items;
@@ -172,7 +169,7 @@ function navigationTabs() {
     ...(state.user?.role === 'owner' ? [['dashboard', '店主总览']] : []),
     ['products', '商品与库存'],
     ...(state.user?.role === 'owner' ? [['procurement', '采购与供货']] : []),
-    ...(state.user?.role === 'owner' ? [['reconciliation', '月度出货核对']] : []),
+    ...(state.user?.role === 'owner' ? [['reconciliation', '月度盘点（可选）']] : []),
     ...(state.user?.role === 'owner' ? [['team', '员工账号']] : []),
     ['audit', '操作记录'],
   ];
@@ -320,8 +317,8 @@ function renderMonthlyOverview(data) {
 }
 
 function reconcileStatus(item) {
-  if (item.openingMilli === null) return ['待录期初', 'warning'];
-  if (item.closingMilli === null) return ['待录期末', 'warning'];
+  if (item.openingMilli === null) return ['无期初记录', 'neutral'];
+  if (item.closingMilli === null) return ['无期末记录', 'neutral'];
   if (item.differenceMilli > 0) return ['少货', 'danger'];
   if (item.differenceMilli < 0) return ['多货', 'warning'];
   return ['已对平', 'success'];
@@ -363,13 +360,31 @@ function renderReconciliation() {
   if (!data) return '<div class="empty">正在加载月度出货核对。</div>';
   const incomplete = data.summary.total - data.summary.ready;
   return `<div class="reconciliation-page">
-    ${header('店主 · 月度盘点', '月度出货核对', '用实盘数量、到货和系统出库核对每种商品。只有期初、期末实盘齐全才会判断差异。')}
+    ${header('店主 · 深入核查', '月度出货核对', '需要追查整月出货差异时使用。日常监督先查看店主总览，并每周抽盘约 10 种商品。')}
+    <div class="banner info"><strong>整月盘点是可选的</strong>这张表只对已录入期初、期末实盘的商品计算差异；不用为了日常监督盘完所有商品。</div>
     <div class="reconcile-guide"><strong>核对公式</strong><span>实际出货 = 期初实盘 + 入库 + 其他调整 − 期末实盘；差异 = 实际出货 − 系统出库。正数表示少货，负数表示多货。</span></div>
-    <div class="reconcile-toolbar card card-pad"><div class="field"><label for="reconcile-month">对账月份</label><select id="reconcile-month">${data.months.slice().reverse().map((month) => `<option value="${month}" ${month === data.month ? 'selected' : ''}>${esc(month)}${month === chinaMonth() ? ' · 本月未结束' : ''}</option>`).join('')}</select></div><div class="field"><label for="reconcile-search">查找商品</label><input id="reconcile-search" value="${esc(state.reconcileQuery)}" placeholder="扫描条码或输入名称" autocomplete="off"></div><label class="reconcile-issue-toggle"><input id="reconcile-only-issues" type="checkbox" ${state.reconcileOnlyIssues ? 'checked' : ''}>只看差异及待盘点</label></div>
-    <div class="reconcile-summary" aria-label="对账汇总"><div class="stat"><span class="stat-label">已完成核对</span><strong class="stat-value">${data.summary.ready} / ${data.summary.total}</strong></div><div class="stat"><span class="stat-label">少货商品</span><strong class="stat-value">${data.summary.missing}</strong></div><div class="stat"><span class="stat-label">多货商品</span><strong class="stat-value">${data.summary.surplus}</strong></div><div class="stat"><span class="stat-label">待补实盘</span><strong class="stat-value">${incomplete}</strong></div></div>
-    <section class="card reconcile-import"><div class="card-heading"><h2>批量录入与导出</h2></div><div class="card-body stack"><p class="subtext">可在下方逐种录入，也可导出含全部条码的模板，填写期初、期末实盘后导入。空白单元格不会覆盖已有数量。</p><form id="reconcile-import-form" class="reconcile-import-form"><div class="field"><label for="reconcile-file">盘点 CSV 文件</label><input id="reconcile-file" name="file" type="file" accept=".csv,text/csv" required></div><button class="btn primary" type="submit">导入实盘数量</button></form><div class="row"><button class="btn secondary" type="button" data-action="download-reconcile-template">下载盘点模板</button><button class="btn secondary" type="button" data-action="download-reconcile-report">导出本月对账表</button></div><p class="help">月底最后营业时盘点并保存；跨月补录须使用当时实际记录的数量。用 Excel 编辑模板时，将条码列设为文本以保留前导零。本月未结束时，差异只是阶段性结果。录入本表不会自动修改当前库存，需要校正时再到“商品与库存”抽盘。</p></div></section>
+    <div class="reconcile-toolbar card card-pad"><div class="field"><label for="reconcile-month">对账月份</label><select id="reconcile-month">${data.months.slice().reverse().map((month) => `<option value="${month}" ${month === data.month ? 'selected' : ''}>${esc(month)}${month === chinaMonth() ? ' · 本月未结束' : ''}</option>`).join('')}</select></div><div class="field"><label for="reconcile-search">查找商品</label><input id="reconcile-search" value="${esc(state.reconcileQuery)}" placeholder="扫描条码或输入名称" autocomplete="off"></div><label class="reconcile-issue-toggle"><input id="reconcile-only-issues" type="checkbox" ${state.reconcileOnlyIssues ? 'checked' : ''}>只看差异及未录实盘</label></div>
+    <div class="reconcile-summary" aria-label="对账汇总"><div class="stat"><span class="stat-label">已核对商品</span><strong class="stat-value">${data.summary.ready} / ${data.summary.total}</strong></div><div class="stat"><span class="stat-label">少货商品</span><strong class="stat-value">${data.summary.missing}</strong></div><div class="stat"><span class="stat-label">多货商品</span><strong class="stat-value">${data.summary.surplus}</strong></div><div class="stat"><span class="stat-label">未录实盘（可选）</span><strong class="stat-value">${incomplete}</strong></div></div>
+    <p class="small-muted">未录实盘只是说明这些商品没有参与本月深入核查，不需要逐一补齐。</p>
+    <section class="card reconcile-import"><div class="card-heading"><h2>批量录入与导出</h2></div><div class="card-body stack"><p class="subtext">需要核查的商品可在下方逐种录入；也可导出模板后批量导入。空白单元格不会覆盖已有数量。</p><form id="reconcile-import-form" class="reconcile-import-form"><div class="field"><label for="reconcile-file">盘点 CSV 文件</label><input id="reconcile-file" name="file" type="file" accept=".csv,text/csv" required></div><button class="btn primary" type="submit">导入实盘数量</button></form><div class="row"><button class="btn secondary" type="button" data-action="download-reconcile-template">下载盘点模板</button><button class="btn secondary" type="button" data-action="download-reconcile-report">导出本月对账表</button></div><p class="help">整月核对时，应依据期初和期末当时实际记录的数量。用 Excel 编辑模板时，将条码列设为文本以保留前导零。本月未结束时，差异只是阶段性结果。录入本表不会自动修改当前库存，需要校正时再到“商品与库存”抽盘。</p></div></section>
     ${renderReconciliationTable()}
   </div>`;
+}
+
+function renderSpotChecks() {
+  const data = state.spotChecks;
+  const error = state.spotChecksError;
+  if (!data) return `<section class="spot-checks" aria-labelledby="spot-check-title"><div class="spot-check-heading"><div><p class="eyebrow">每周少量核查</p><h2 id="spot-check-title">本周建议抽盘</h2></div></div><div class="empty">${error ? `抽盘清单暂时无法加载：${esc(error)}` : '正在生成本周抽盘清单。'}</div></section>`;
+  const items = data.items || [];
+  const target = data.target || items.length;
+  const completed = data.completed || 0;
+  return `<section class="spot-checks" aria-labelledby="spot-check-title">
+    <div class="spot-check-heading"><div><p class="eyebrow">每周少量核查</p><h2 id="spot-check-title">本周建议抽盘</h2><p>系统列出约 10 种商品；现场实点并登记，差异会进入库存异常。</p></div><span class="pill">${completed} / ${target} 种已完成</span></div>
+    <progress class="spot-check-progress" value="${completed}" max="${Math.max(target, 1)}" aria-label="本周抽盘进度">${completed} / ${target}</progress>
+    <div class="spot-check-period">${esc(data.weekStart)} 至 ${esc(data.weekEnd)} · 由店主或可信任的人现场清点</div>
+    ${items.length ? `<div class="spot-check-list">${items.map((item) => `<article class="spot-check-item"><div class="spot-check-item-main"><strong>${esc(item.name)}</strong><p>条码 ${esc(item.barcode)} · 账面 ${qtyText(item.stockMilli, item.unit)}</p><small>${esc(item.reason || '本周建议抽盘')}</small></div><div class="spot-check-item-action">${item.completed ? `<span class="status success">已抽盘</span><small>${time(item.countedAt)}</small>` : `<button class="btn secondary small" type="button" data-spot-count="${esc(item.id)}">录入实点</button>`}</div></article>`).join('')}</div>` : '<div class="empty">商品建档后会生成本周抽盘清单。</div>'}
+    <p class="spot-check-note">抽盘只需核对这份清单；发现差异再查相关商品、订单与供货记录。未抽到的商品仍可能有漏扫或未入账交易。</p>
+  </section>`;
 }
 
 function renderDashboard() {
@@ -411,7 +426,7 @@ function renderDashboard() {
   const dashboardError = state.dashboardRefreshError ? `<p class="dashboard-refresh-error" role="status">自动刷新失败：${esc(state.dashboardRefreshError)}。仍显示上次成功数据。</p>` : '';
 
   return `<div class="dashboard-page">
-    <div class="topline dashboard-topline"><div><p class="eyebrow">店主 · 经营总览</p><h1>经营总览</h1><p class="subtext">查看每月收款和需要核对的经营异常。</p></div>
+    <div class="topline dashboard-topline"><div><p class="eyebrow">店主 · 经营总览</p><h1>经营总览</h1><p class="subtext">先处理系统列出的异常，再完成本周少量抽盘；每月收款数据在下方查看。</p></div>
       <div class="dashboard-refresh"><span class="pill">数据日期 ${esc(data.today)}</span><button class="btn secondary dashboard-refresh-button" type="button" data-action="refresh-dashboard" ${state.dashboardRefreshing ? 'disabled aria-busy="true"' : ''}>${state.dashboardRefreshing ? '刷新中…' : '刷新'}</button><span class="dashboard-updated">${state.dashboardUpdatedAt ? `更新于 ${time(state.dashboardUpdatedAt)}` : '等待更新'}</span></div>
     </div>
     ${dashboardError}
@@ -422,7 +437,7 @@ function renderDashboard() {
       ${metric('现金差额', `${cashIssueCount} 项`, cashIssueCount ? `差额绝对值合计 ${money(cashIssueAmount)}` : '没有未结差额', cashIssueCount ? 'danger' : 'neutral')}
       ${metric('库存差异', `${stockIssueCount} 项`, `抽盘差异与负库存`, stockIssueCount ? 'warning' : 'neutral')}
     </div>
-    ${renderMonthlyOverview(data)}
+    ${renderSpotChecks()}
     <div class="dashboard-groups">
       ${section('订单 / 退款审批', `${approvals.length} 项`, rows(approvals, (item) => `<article class="dashboard-row"><div class="dashboard-row-main"><strong>${esc(item.title)}</strong><p>${esc(item.meta)} · ${time(item.time)}</p></div><b class="dashboard-row-value">${esc(item.amount)}</b></article>`, '目前没有订单或退款审批。'))}
       ${data.productRequests.length ? `<div class="dashboard-section dashboard-subsection"><div class="dashboard-section-heading"><div><h3>新商品建档</h3><p>核对员工提交的条码与建议资料</p></div><span class="pill">${productRequestCount} 项</span></div>${rows(data.productRequests.map((item) => ({ ...item, time: item.created_at })), (item) => `<article class="dashboard-row"><div class="dashboard-row-main"><strong>${esc(item.suggested_name)}</strong><p>${esc(item.barcode)} · ${esc(item.requester_name)} · ${time(item.created_at)}</p></div><b class="dashboard-row-value">${money(item.suggested_price_cents)}</b></article>`, '没有待审核的新商品。')}</div>` : ''}
@@ -439,6 +454,7 @@ function renderDashboard() {
       <div><span>现金销售</span><strong>${money(cash)}</strong><small>按已完成订单统计</small></div>
       <div><span>今日退款</span><strong>${money(data.refundsToday)}</strong><small>按完成时间统计</small></div>
     </section>
+    ${renderMonthlyOverview(data)}
     <p class="dashboard-readonly-note">此页只展示本地系统记录；渠道到账仍以已导入的真实渠道流水为准。</p>
   </div>`;
 }
@@ -524,17 +540,27 @@ function syncDashboardRefresh() {
   }
 }
 
-async function refreshDashboard() {
+async function loadDashboardData(includeSpotChecks = true) {
+  const spotRequest = includeSpotChecks
+    ? api('/spot-checks?limit=10').then((data) => ({ data }), (error) => ({ error: error.message }))
+    : Promise.resolve(null);
+  const [dashboard, spotResult] = await Promise.all([api('/dashboard'), spotRequest]);
+  state.dashboard = dashboard;
+  if (spotResult) {
+    state.spotChecks = spotResult.data || null;
+    state.spotChecksError = spotResult.error || null;
+  }
+  state.dashboardUpdatedAt = new Date();
+  state.dashboardRefreshError = null;
+}
+
+async function refreshDashboard(includeSpotChecks = false) {
   if (state.user?.role !== 'owner' || state.tab !== 'dashboard' || state.dashboardRefreshing) return;
   state.dashboardRefreshing = true;
   state.dashboardRefreshError = null;
   render();
   try {
-    const data = await api('/dashboard');
-    if (state.user?.role === 'owner' && state.tab === 'dashboard') {
-      state.dashboard = data;
-      state.dashboardUpdatedAt = new Date();
-    }
+    await loadDashboardData(includeSpotChecks);
   } catch (error) {
     if (state.user?.role === 'owner' && state.tab === 'dashboard') state.dashboardRefreshError = error.message;
   } finally {
@@ -814,7 +840,7 @@ document.addEventListener('click', async (event) => {
     document.querySelector('#login-form h2').textContent = `${state.loginRole === 'owner' ? '店主' : '员工'}登录`;
     return;
   }
-  if (target.dataset.action === 'refresh-dashboard') { await refreshDashboard(); return; }
+  if (target.dataset.action === 'refresh-dashboard') { await refreshDashboard(true); return; }
   if (target.dataset.editSupplier) {
     const supplier = state.procurement?.suppliers.find((item) => item.id === target.dataset.editSupplier);
     const form = document.querySelector('#supplier-form');
@@ -895,6 +921,18 @@ document.addEventListener('click', async (event) => {
   if (target.dataset.editProduct) {
     const product = state.products.find((item) => item.id === target.dataset.editProduct);
     if (product) { fillProductForm(product); document.querySelector('#product-form')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+    return;
+  }
+  if (target.dataset.spotCount) {
+    const product = state.spotChecks?.items.find((item) => item.id === target.dataset.spotCount);
+    if (!product || product.completed) return;
+    const actual = prompt(`${product.name}：输入现场实点数量（${product.unit === 'kg' ? '千克' : '件'}）。系统账面为 ${qtyText(product.stockMilli, product.unit)}`);
+    if (actual === null) return;
+    await run(async () => {
+      const countedMilli = quantityFromInput(actual, product.unit, true);
+      await api(`/products/${product.id}/count`, { method: 'POST', body: { countedMilli, reason: '本周建议抽盘' } });
+      await loadDashboardData(true);
+    }, '抽盘已记录；如有差异，店主总览会显示库存异常');
     return;
   }
   if (target.dataset.adjustStock) {

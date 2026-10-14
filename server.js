@@ -7,6 +7,7 @@ import { openDatabase, transaction } from './db.js';
 import { createDailyBackup } from './backup.js';
 import { procurementOverview, recordReceipt, saveSupplier } from './procurement.js';
 import { monthlyStockReconciliation, saveMonthlyStockCounts } from './reconciliation.js';
+import { weeklySpotChecks } from './spot_checks.js';
 import {
   AppError, addCashEvent, adjustStock, audit, claimPaymentReference, closeShift, completeRefund, countStock,
   createOrder, currentShift, dashboard, decideOrder, decideRefund, getOrder,
@@ -208,6 +209,7 @@ export function createApp({ db = openDatabase(process.env.POS_DB_PATH || join(he
       if (req.method === 'POST' && match) { requireUser(user, 'owner'); const input = await bodyOf(req); return json(res, 200, { ok: true, data: adjustStock(db, user.id, match[1], input.deltaMilli, input.reason) }); }
       match = path.match(/^\/api\/products\/([^/]+)\/count$/);
       if (req.method === 'POST' && match) { requireUser(user, 'owner'); const input = await bodyOf(req); return json(res, 200, { ok: true, data: countStock(db, user.id, match[1], input.countedMilli, input.reason) }); }
+      if (req.method === 'GET' && path === '/api/spot-checks') { requireUser(user, 'owner'); return json(res, 200, { ok: true, data: weeklySpotChecks(db, url.searchParams.get('limit')) }); }
       if (req.method === 'GET' && path === '/api/procurement') { requireUser(user, 'owner'); return json(res, 200, { ok: true, data: procurementOverview(db) }); }
       if (req.method === 'POST' && path === '/api/suppliers') { requireUser(user, 'owner'); return json(res, 201, { ok: true, data: saveSupplier(db, user.id, await bodyOf(req)) }); }
       match = path.match(/^\/api\/suppliers\/([^/]+)$/);
